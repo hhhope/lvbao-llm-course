@@ -1,1 +1,66 @@
-(()=>{const root=document.querySelector('#context-story');if(!root)return;let relation=0;const scenes=[{q:'她',target:4,title:'“她”指向谁？',desc:'句子后半段的“她”需要结合前文理解。我们用指向“小红”的箭头展示一种合理的语义解释。',weights:[.15,.05,.05,.05,.7],label:'人物指代'},{q:'递给',target:2,title:'“递给”发生了什么？',desc:'现在换一个问题：被递过去的是什么？我们把“书”突出出来。查询问题改变，关注关系也可以改变。',weights:[.15,.05,.65,.05,.1],label:'动作与物品'}];const words=['小明','把','书','递给','小红'];function draw(){const s=scenes[relation];root.innerHTML=`<div class="studio-header"><span>先读一句话，再认识ATTENTION</span><h2>小明把书递给小红，因为她要读书。</h2><p>只看“她”，不知道是谁。上下文提供了候选线索。先切换问题，看读取关系如何变化。</p></div><div class="story-switch"><button data-r="0" class="${relation===0?'active':''}">她指谁？</button><button data-r="1" class="${relation===1?'active':''}">递的什么？</button></div><svg viewBox="0 0 760 310" role="img" aria-label="当前问题连接到前文相关词语的语义示意"><defs><marker id="story-arr" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#af94f7"/></marker></defs><path class="semantic-link" d="M380 105 Q380 160 ${80+s.target*150} 210" stroke="#af94f7" stroke-width="3" fill="none" marker-end="url(#story-arr)"/><rect x="265" y="20" width="230" height="85" rx="13" fill="#302347" stroke="#b398ef"/><text x="380" y="53" text-anchor="middle" fill="#c8b4ff" font-size="16">当前问题 · ${s.label}</text><text x="380" y="85" text-anchor="middle" fill="white" font-size="25">${s.q}</text>${words.map((w,i)=>`<g><rect x="${20+i*150}" y="210" width="120" height="65" rx="10" fill="${i===s.target?'#49345e':'#192139'}" stroke="${i===s.target?'#b899f2':'#3b4863'}"/><text x="${80+i*150}" y="250" text-anchor="middle" fill="#ece8ff" font-size="23">${w}</text></g>`).join('')}</svg><h3>${s.title}</h3><p>${s.desc}</p><div class="story-weight-grid">${words.map((w,i)=>`<div><span>${w}</span><div class="weight-bar"><i style="width:${s.weights[i]*100}%"></i></div><b>${Math.round(s.weights[i]*100)}%</b></div>`).join('')}</div><p class="meta">箭头与百分比均为编辑手工安排的语义示意，用来解释“不同问题，读取不同内容”。它不是模型运行结果，也不能证明真实注意力头必然承担这些关系。</p><table class="studio-table"><tr><th>从句子直觉到算法角色</th><th>对应位置</th><th>还要补哪一步</th></tr><tr><td>Query：拿来查询的表示</td><td>图上方当前问题</td><td>真实Q是向量，不是直接拿“她”这个字做乘法</td></tr><tr><td>Key：每份候选的匹配表示</td><td>下方每个候选位置</td><td>Q和各K点积得到分数，再经softmax变权重</td></tr><tr><td>Value：匹配后取走的内容表示</td><td>候选位置携带的信息</td><td>按权重汇总向量，不是只选一个人名</td></tr></table><p><strong>下一段切换到真实公式的小数字演算：</strong>数字不再假装对应上句人物的真实语义，只用于算清点积、softmax与加权和。</p>`;root.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{relation=+b.dataset.r;draw()})}draw()})();
+(() => {
+  const host = document.querySelector('#context-story');
+  if (!host) return;
+
+  const positions = [
+    {label: '小红', value: 1, x: 61},
+    {label: '书', value: 2, x: 180},
+    {label: '其他', value: 4, x: 299},
+  ];
+  const questions = [
+    {label: '她指谁？', target: 0, explanation: '这句里，「她」可以指向小红。'},
+    {label: '递了什么？', target: 1, explanation: '句子里被递过去的是「书」。'},
+  ];
+  host.innerHTML = `
+    <div class="diagram-toolbar"><span class="diagram-kicker">INTERACTIVE ATLAS / ATTENTION</span></div>
+    <h2>问题变了，应该读哪条线索？</h2>
+    <p>小明把书递给小红，因为她要读书。先想一想，再点一个问题。</p>
+    <div class="example-controls" aria-label="切换要找的线索">
+      ${questions.map(q => `<button type="button" aria-pressed="false">${q.label}</button>`).join('')}
+    </div>
+    <div class="attention-visual"></div>
+    <p class="attention-answer" aria-live="polite">选择一个问题，查看图上哪条线索被突出。</p>
+    <details class="attention-calculation" hidden>
+      <summary>展开计算：分数怎样变成输出</summary>
+      <div class="attention-products"></div>
+    </details>
+    <p class="meta">问题、分数和 Value 都是教学设定。「其他」合并其余线索；用一维 Value 示意真实模型中的向量加权。注意力权重显示这一步取了哪些信息，不能验证事实。</p>
+    <button type="button" class="attention-reset">重置</button>`;
+
+  const control = [...host.querySelectorAll('.example-controls button')];
+  const visual = host.querySelector('.attention-visual');
+  const answer = host.querySelector('.attention-answer');
+  const calculation = host.querySelector('.attention-calculation');
+  const products = host.querySelector('.attention-products');
+
+  function render(index) {
+    const question = questions[index];
+    const exponential = positions.map((_, i) => i === question?.target ? 2 : 1);
+    const total = exponential.reduce((sum, value) => sum + value, 0);
+    const weights = exponential.map(value => value / total);
+    control.forEach((button, i) => button.setAttribute('aria-pressed', String(i === index)));
+    visual.innerHTML = `
+      <svg viewBox="0 0 360 170" role="img" aria-label="${question ? question.label + ' 重点线索：' + positions[question.target].label : '三个待选线索：小红、书、其他'}">
+        <rect class="attention-query" x="110" y="8" width="140" height="40" rx="9"/>
+        <text x="180" y="34">${question?.label || '先选一个问题'}</text>
+        ${question ? positions.map(({x}, i) => `<path class="attention-edge ${i === question.target ? 'attention-edge-active' : ''}" pathLength="1" d="M180 48 Q180 82 ${x} 109"/>`).join('') : ''}
+        ${positions.map(({x,label},i) => `<g><rect class="${i === question?.target ? 'attention-node-active' : 'attention-node'}" x="${x-48}" y="109" width="96" height="43" rx="8"/><text x="${x}" y="136">${label}${question ? ' · ' + weights[i] * 100 + '%' : ''}</text></g>`).join('')}
+      </svg>`;
+    calculation.hidden = !question;
+    if (!question) {
+      calculation.open = false;
+      answer.textContent = '选择一个问题，查看图上哪条线索被突出。';
+      products.replaceChildren();
+      return;
+    }
+    answer.textContent = question.explanation + ' 图上这条线索的权重是 50%。';
+    const contributions = positions.map(({value}, i) => value * weights[i]);
+    const sum = contributions.reduce((a,b) => a+b,0);
+    products.innerHTML = '<p>缩放后分数取指数，再除以总和 4。</p><table><thead><tr><th>线索</th><th>分数</th><th>权重</th><th>Value × 权重</th></tr></thead><tbody>' +
+      positions.map(({label,value},i) => `<tr><th scope="row">${label}</th><td>${i === question.target ? 'ln 2' : '0'}</td><td>${weights[i]*100}%</td><td>${value} × ${weights[i]} = ${contributions[i]}</td></tr>`).join('') +
+      '</tbody></table><p>加权输出：<strong>' + contributions.join(' + ') + ' = ' + sum + '</strong></p>';
+  }
+  control.forEach((button, i) => button.onclick = () => render(i));
+  host.querySelector('.attention-reset').onclick = () => { render(-1); control[0].focus(); };
+  render(-1);
+})();

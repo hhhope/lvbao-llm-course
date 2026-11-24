@@ -1,1 +1,71 @@
-(()=>{const el=document.querySelector('#generation-story');if(!el)return;let n=0;const tokens=['今天','天气','很','好','<结束>'];function draw(){const done=n===3;el.innerHTML=`<div class="studio-header"><span>GENERATION / 前缀 → 候选 → 选择 → 接回</span><h2>机器不是一次拿出整篇答案。</h2><p>先给它“今天 天气”。点击一次，只接回一个片段，观察下一轮的输入怎样变长。</p></div><div class="generation-tokens">${tokens.slice(0,2+n).map((t,i)=>`<span style="animation-delay:${i*.05}s">${t}</span>`).join('')}</div><svg viewBox="0 0 760 180" role="img" aria-label="前缀经过固定模型计算出下一片段，再接回输入"><g font-family="PingFang SC,sans-serif"><rect x="20" y="40" width="195" height="90" rx="12" fill="#28314b"/><text x="117" y="92" text-anchor="middle" fill="#e2e9fb" font-size="23">${2+n}个已知片段</text><path d="M220 85H275M480 85H535" stroke="#ad92ee" stroke-width="4"/><rect x="280" y="40" width="195" height="90" rx="12" fill="#3b2850"/><text x="377" y="92" text-anchor="middle" fill="#e2d2f9" font-size="23">固定参数的模型</text><rect x="540" y="40" width="195" height="90" rx="12" fill="#193b46"/><text x="637" y="92" text-anchor="middle" fill="#b3e8ec" font-size="23">${done?'停止':tokens[n+2]}</text></g></svg><button class="generate-next" ${done?'disabled':''}>${done?'已生成停止符':'选中并接回一个片段 →'}</button> <button class="generate-reset">重置</button><p><strong>${done?'遇到停止条件，循环结束。':'下一轮输入会包含刚才选择的片段，因此选择会影响后续续写。'}</strong></p><table class="studio-table"><tr><th>角色</th><th>图里是什么</th></tr><tr><td>前缀</td><td>顶部已经出现的片段，是本轮输入</td></tr><tr><td>token</td><td>模型处理的文字小片段，本例人为切分</td></tr><tr><td>推理</td><td>运行固定参数的模型得到输出；这里不特指逻辑推理能力</td></tr><tr><td>训练</td><td>另一个利用样本改变参数的过程，不是每次生成都自动进行</td></tr></table><p class="meta">片段和输出次序为预写分镜，不是在线模型预测。真实生成会计算候选分布并按解码规则选择；第4课展示概率与采样。</p>`;el.querySelector('.generate-next').onclick=()=>{n=Math.min(3,n+1);draw()};el.querySelector('.generate-reset').onclick=()=>{n=0;draw()}}draw()})();
+(() => {
+  const host = document.querySelector('#generation-story');
+  if (!host) return;
+
+  const examples = [
+    {prefix: '小红翻开一本', choices: [['书',70],['杂志',20],['笔记本',10]]},
+    {prefix: '小红拧开一瓶', choices: [['水',70],['果汁',20],['牛奶',10]]},
+  ];
+  host.innerHTML = `
+    <div class="diagram-toolbar"><span class="diagram-kicker">INTERACTIVE ATLAS / 逐词续写</span></div>
+    <div class="generation-board">
+      <h2>只换前文，下一词会变吗？</h2>
+      <p>先猜「一本」和「一瓶」后面各会接什么，再切换前缀。</p>
+      <div class="diagram-tabs" aria-label="切换前缀"></div>
+      <div class="generation-prefix" aria-live="polite"></div>
+      <p class="generation-instruction">点一个候选，把它接回句尾。</p>
+      <div class="generation-candidates"></div>
+      <div class="diagram-detail" aria-live="polite"></div>
+      <button type="button" class="generation-reset">重置本轮</button>
+      <p class="meta">候选、概率与切分均为教学设定。</p>
+    </div>`;
+
+  const tabs = host.querySelector('.diagram-tabs');
+  const prefix = host.querySelector('.generation-prefix');
+  const candidates = host.querySelector('.generation-candidates');
+  const detail = host.querySelector('.diagram-detail');
+  let current = 0;
+
+  function button(label, action) {
+    const control = document.createElement('button');
+    control.type = 'button';
+    control.textContent = label;
+    control.onclick = action;
+    return control;
+  }
+
+  const switches = examples.map(({prefix: text}, i) => {
+    const control = button(text, () => render(i));
+    tabs.append(control);
+    return control;
+  });
+
+  function render(index) {
+    current = index;
+    const example = examples[index];
+    switches.forEach((control, i) => control.setAttribute('aria-pressed', String(i === index)));
+    prefix.textContent = example.prefix;
+    detail.textContent = '选中的词会成为下一轮输入的一部分。';
+    candidates.replaceChildren(...example.choices.map(([word, score]) => {
+      const control = button(`${word} · ${score}%`, () => {
+        prefix.textContent = example.prefix;
+        const appended = document.createElement('strong');
+        appended.textContent = word;
+        prefix.append(appended);
+        for (const candidate of candidates.children) {
+          candidate.setAttribute('aria-pressed', String(candidate === control));
+        }
+        detail.textContent = `下一轮收到「${example.prefix}${word}」，会根据这段更长的前缀重新计算候选。`;
+      });
+      control.setAttribute('aria-pressed', 'false');
+      control.style.setProperty('--score', `${score}%`);
+      return control;
+    }));
+  }
+
+  host.querySelector('.generation-reset').onclick = () => {
+    render(current);
+    switches[current].focus({preventScroll: true});
+  };
+  render(0);
+})();

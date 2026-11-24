@@ -4,3 +4,8 @@
 
 /* Connections must remain strokes; node fill must not leak into paths. */
 .network svg g[stroke]{fill:none}.network svg path{fill:none;stroke-width:1;stroke-linecap:round}.network svg circle{stroke:none}
+
+.probabilities>div{grid-template-columns:3.2em minmax(18px,1fr) 4em}
+#temperature-comparison{color:#c1b3eb;line-height:1.7}
+#temperature-reset{min-height:40px;padding:7px 12px;border:1px solid #aa90ee55;border-radius:7px;background:#aa90ee16;color:#e0d2ff;cursor:pointer}
+#temperature-reset:focus-visible,#temperature:focus-visible{outline:2px solid #c9b4ff;outline-offset:4px}

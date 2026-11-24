@@ -1,1 +1,79 @@
-(()=>{const root=document.querySelector('#evidence-story');if(!root)return;let checked=false;function draw(){root.innerHTML=`<div class="studio-header"><span>RAG / 先找资料，再核验证据</span><h2>今年出差，餐费最多报多少？</h2><p>检索先找“相关”的片段。两个候选都像答案，先猜：分数更高的那份一定能用于今年吗？</p></div><div class="studio-query"><strong>问题：2026年员工出差餐费上限？</strong></div><div class="studio-lanes"><article class="${checked?'masked':''}"><h3>A · 检索第一名</h3><div class="calc-node"><small>相似度</small><b>0.95</b></div><div class="calc-node"><small>文件</small><b>2024员工出差办法</b></div><p>餐费上限：80元/天</p><p>${checked?'已核验：被B明确替代，不适用当前问题':'尚未检查是否仍生效'}</p></article><article><h3>B · 检索第二名</h3><div class="calc-node"><small>相似度</small><b>0.85</b></div><div class="calc-node"><small>文件</small><b>2026员工出差办法</b></div><p>餐费上限：100元/天</p><p>2026年1月1日生效，明确替代2024版，适用于员工国内出差。</p></article></div><div class="evidence-flow"><span>问题</span><b>→</b><span>检索候选</span><b>→</b><span class="${checked?'verified':''}">核验版本与范围</span><b>→</b><span>${checked?'有效证据B → 回答':'尚未确认答案'}</span></div><button class="evidence-check">${checked?'回到只看相似度':'核验日期、替代关系和适用对象 →'}</button><div class="studio-output"><small>${checked?'经过核验的教学回答':'直接照抄检索第一名会怎样？'}</small><strong>${checked?'100元 / 天':'80元 / 天？'}</strong><p>${checked?'依据：2026办法，已生效且适用，明确替代旧版。应答时同时引用该条款。':'它看起来最相关，但可能已经过期。检索排名不负责证明规则有效。'}</p></div><p class="meta">文件、金额与日期均为编辑构造，不是真实公司政策。示例刻意给出明确替代关系；实际核验不能仅凭年份更大就认定适用。</p><table class="studio-table"><tr><th>机制</th><th>本图负责什么</th></tr><tr><td>检索 Retrieval</td><td>按相关性取回A与B，不自动判定哪份生效</td></tr><tr><td>增强 Augmentation</td><td>把已核验片段和问题放进模型上下文</td></tr><tr><td>生成 Generation</td><td>根据有效证据组织答案与引用，不擅自补缺失条款</td></tr></table>`;root.querySelector('button').onclick=()=>{checked=!checked;draw()}}draw()})();
+(() => {
+  const host = document.querySelector('#evidence-story');
+  if (!host) return;
+  const c = reimbursementCase;
+  const documents = [
+    ['旧制度 · 检索第 1', '限额 ' + c.oldLimit + ' 元。自 ' + c.effectiveDate + ' 起被新版替代。'],
+    ['现行制度 · 检索第 2', c.effectiveDate + ' 起生效。' + c.clause + '要求金额不超过 ' + c.currentLimit + ' 元，并有有效凭证。'],
+    ['报销单 · 工具记录', '日期 ' + c.expenseDate + '，金额 ' + c.amount + ' 元。凭证状态需要另外查询。'],
+  ];
+  const findings = [
+    ['虚构引用', '这份教学证据里的现行制度没有' + c.inventedClause + '。可核对的依据是' + c.clause + '。', 1],
+    ['结论超出证据', '单据金额满足现行条款的限额，但凭证还需要核验。', 2],
+  ];
+  host.innerHTML = `
+    <div class="diagram-toolbar"><span class="diagram-kicker">INTERACTIVE ATLAS / 证据查证</span></div>
+    <h2>这笔 680 元差旅能不能报销？</h2>
+    <p>先读回答，猜哪一处最需要核验，然后点一下看证据。</p>
+    <p class="evidence-claim">按现行制度<button type="button" data-claim="0" aria-pressed="false">第 9 条</button>，680 元<button type="button" data-claim="1" aria-pressed="false">可以直接报销</button>。</p>
+    <div class="example-controls evidence-docs" aria-label="打开证据">
+      ${documents.map(([name], i) => `<button type="button" data-document="${i}" aria-pressed="false">${name}</button>`).join('')}
+    </div>
+    <div class="evidence-reading" aria-live="polite">选择回答中的一句或打开一份材料。</div>
+    <h3>查询凭证状态</h3>
+    <div class="example-controls" aria-label="模拟工具查询">
+      <button type="button" data-receipt="verified" aria-pressed="false">查到有效凭证</button>
+      <button type="button" data-receipt="missing" aria-pressed="false">查询无结果</button>
+    </div>
+    <div class="example-result evidence-verdict" aria-live="polite"></div>
+    <button type="button" class="evidence-reset">重置</button>
+    <p class="meta">虚构教学数据。示意检索负责找规则，工具负责查询单据状态。</p>`;
+
+  const claims = [...host.querySelectorAll('[data-claim]')];
+  const sources = [...host.querySelectorAll('[data-document]')];
+  const receipts = [...host.querySelectorAll('[data-receipt]')];
+  const reading = host.querySelector('.evidence-reading');
+  const verdict = host.querySelector('.evidence-verdict');
+
+  function pressed(group, selected) {
+    group.forEach(button => button.setAttribute('aria-pressed', String(button === selected)));
+  }
+
+  function showEvidence(documentIndex, claimIndex) {
+    pressed(sources, sources[documentIndex]);
+    pressed(claims, claims[claimIndex]);
+    const [title, body] = documents[documentIndex];
+    const finding = findings[claimIndex];
+    reading.replaceChildren();
+    for (const text of [finding?.[0], finding?.[1], title, body].filter(Boolean)) {
+      const line = document.createElement('p');
+      line.textContent = text;
+      reading.append(line);
+    }
+    reading.classList.remove('evidence-flash');
+    void reading.offsetWidth;
+    reading.classList.add('evidence-flash');
+  }
+
+  function showVerdict(state) {
+    const selected = receipts.find(button => button.dataset.receipt === state);
+    pressed(receipts, selected);
+    const status = state === 'verified' ? '已核验有效' : state === 'missing' ? '查询无结果' : '尚未查询';
+    verdict.dataset.receipt = state;
+    verdict.textContent = '凭证：' + status + '。680 元符合现行 800 元限额。' +
+      (state === 'verified' ? '已满足示例中的金额与凭证两项条件。' : '是否可报销仍需核验凭证。');
+  }
+
+  claims.forEach((button, i) => button.onclick = () => showEvidence(findings[i][2], i));
+  sources.forEach((button, i) => button.onclick = () => showEvidence(i));
+  receipts.forEach(button => button.onclick = () => showVerdict(button.dataset.receipt));
+  host.querySelector('.evidence-reset').onclick = () => {
+    pressed(claims);
+    pressed(sources);
+    reading.classList.remove('evidence-flash');
+    reading.textContent = '选择回答中的一句或打开一份材料。';
+    showVerdict('initial');
+    claims[0].focus();
+  };
+  showVerdict('initial');
+})();
